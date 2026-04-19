@@ -1,0 +1,399 @@
+-- ============================================================
+-- ADDITIONAL MEASURES — S&P 500 Power BI Dashboard
+-- Purpose : Finance-grade analytics for Page 3 and resume value
+-- These measures elevate the dashboard from "basic" to
+-- "professional analyst level" — key for job interviews
+-- ============================================================
+-- PREREQUISITE: All measures in core_measures.dax must exist first
+-- ============================================================
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 1: Sharpe Ratio (Approximation)
+-- Purpose : Risk-adjusted return — the gold standard in finance
+-- Formula : Return YTD / Volatility %
+-- Output  : Number — Sharpe > 1 is considered good
+-- Used in : P3 — KPI card or table column
+-- WHY IT MATTERS: Any finance or investment firm interview
+--                 will ask about this. Shows you know finance.
+-- ────────────────────────────────────────────────────────────
+
+Sharpe Ratio =
+VAR Ret =
+    [Return YTD]
+VAR Vol =
+    [Volatility %]
+RETURN
+    IF(
+        Vol = 0 || ISBLANK( Vol ),
+        BLANK(),
+        DIVIDE( Ret, Vol )
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 2: Price Range %
+-- Purpose : Intraday price volatility (High vs Low as % of Close)
+-- Formula : (Avg High - Avg Low) / Avg Close * 100
+-- Output  : Number as % — higher = wider intraday swings
+-- Used in : P3 — KPI tile, scatter tooltip
+-- ────────────────────────────────────────────────────────────
+
+Price Range % =
+DIVIDE(
+    AVERAGE( 'Stock Prices'[high] ) - AVERAGE( 'Stock Prices'[low] ),
+    AVERAGE( 'Stock Prices'[close] )
+) * 100
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 3: Volume Surge Flag
+-- Purpose : Detects abnormally high trading activity
+-- Formula : IF current volume > 2x the overall average → "SURGE"
+-- Output  : Text — "SURGE" or "Normal"
+-- Used in : P2 table as a conditional icon column
+--           P3 as a slicer to show only high-activity days
+-- ────────────────────────────────────────────────────────────
+
+Volume Surge Flag =
+VAR CurrentVol =
+    AVERAGE( 'Stock Prices'[volume] )
+VAR BaselineVol =
+    CALCULATE(
+        AVERAGE( 'Stock Prices'[volume] ),
+        ALL( 'Stock Prices'[date] )
+    )
+RETURN
+    IF(
+        CurrentVol > 2 * BaselineVol,
+        "SURGE",
+        "Normal"
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 4: Drawdown %
+-- Purpose : How far current price is below its peak
+-- Formula : (Current Close - Max Close) / Max Close * 100
+-- Output  : Number as % — always 0 or negative
+--           e.g. -30% means price is 30% below its peak
+-- Used in : P3 — risk tile, scatter chart color saturation
+-- WHY IT MATTERS: Standard risk metric in portfolio management
+-- ────────────────────────────────────────────────────────────
+
+Drawdown % =
+VAR MaxClose =
+    CALCULATE(
+        MAX( 'Stock Prices'[close] ),
+        ALLSELECTED( 'Stock Prices'[date] )
+    )
+VAR CurrentClose =
+    AVERAGE( 'Stock Prices'[close] )
+RETURN
+    IF(
+        MaxClose = 0 || ISBLANK( MaxClose ),
+        BLANK(),
+        DIVIDE( CurrentClose - MaxClose, MaxClose ) * 100
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 5: Momentum Score
+-- Purpose : 3-month return vs 6-month return ratio
+-- Formula : Return3M / ABS(Return6M)
+-- Output  : Number — score > 1 means stock is accelerating
+-- Used in : P3 — momentum scatter, ranking table sort
+-- WHY IT MATTERS: Used in quantitative trading strategies
+-- ────────────────────────────────────────────────────────────
+
+Momentum Score =
+VAR Return3M =
+    CALCULATE(
+        [Monthly Return %],
+        DATESINPERIOD(
+            'Stock Prices'[date],
+            LASTDATE( 'Stock Prices'[date] ),
+            -90,
+            DAY
+        )
+    )
+VAR Return6M =
+    CALCULATE(
+        [Monthly Return %],
+        DATESINPERIOD(
+            'Stock Prices'[date],
+            LASTDATE( 'Stock Prices'[date] ),
+            -180,
+            DAY
+        )
+    )
+RETURN
+    IF(
+        ISBLANK( Return6M ) || Return6M = 0,
+        BLANK(),
+        DIVIDE( Return3M, ABS( Return6M ) + 0.001 )
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 6: Beta vs Index (Approximation)
+-- Purpose : How much a stock moves relative to the overall market
+-- Formula : Covariance(Stock, Index) / Variance(Index)
+-- Output  : Number — Beta 1.0 = moves with market
+--           Beta > 1 = amplified moves (aggressive)
+--           Beta < 1 = dampened moves (defensive)
+-- NOTE    : Requires 'Index Prices' table OR use avg of all stocks
+--           as the proxy index — see approximation below
+-- Used in : P3 — risk scatter, KPI card
+-- ────────────────────────────────────────────────────────────
+
+Beta Approximation =
+VAR StockReturnsTable =
+    ADDCOLUMNS(
+        VALUES( 'Stock Prices'[date] ),
+        "StockRet",
+            CALCULATE(
+                DIVIDE(
+                    AVERAGE( 'Stock Prices'[close] ) - AVERAGE( 'Stock Prices'[open] ),
+                    AVERAGE( 'Stock Prices'[open] )
+                )
+            ),
+        "IndexRet",
+            CALCULATE(
+                DIVIDE(
+                    AVERAGEX( ALL( 'Stock Prices'[symbol] ), 'Stock Prices'[close] ) -
+                    AVERAGEX( ALL( 'Stock Prices'[symbol] ), 'Stock Prices'[open] ),
+                    AVERAGEX( ALL( 'Stock Prices'[symbol] ), 'Stock Prices'[open] )
+                )
+            )
+    )
+VAR AvgStockRet =
+    AVERAGEX( StockReturnsTable, [StockRet] )
+VAR AvgIndexRet =
+    AVERAGEX( StockReturnsTable, [IndexRet] )
+VAR Covariance =
+    AVERAGEX(
+        StockReturnsTable,
+        ( [StockRet] - AvgStockRet ) * ( [IndexRet] - AvgIndexRet )
+    )
+VAR Variance =
+    AVERAGEX(
+        StockReturnsTable,
+        ( [IndexRet] - AvgIndexRet ) ^ 2
+    )
+RETURN
+    IF(
+        Variance = 0 || ISBLANK( Variance ),
+        BLANK(),
+        DIVIDE( Covariance, Variance )
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 7: Risk Category
+-- Purpose : Labels each stock as Low / Medium / High risk
+-- Formula : Based on Volatility % thresholds
+-- Output  : Text — "Low Risk", "Medium Risk", "High Risk"
+-- Used in : P3 — slicer, scatter legend, table icon
+-- ────────────────────────────────────────────────────────────
+
+Risk Category =
+VAR Vol =
+    [Volatility %]
+RETURN
+    IF(
+        ISBLANK( Vol ),
+        "Unknown",
+        IF(
+            Vol > 30,
+            "High Risk",
+            IF(
+                Vol > 20,
+                "Medium Risk",
+                "Low Risk"
+            )
+        )
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 8: Return Category
+-- Purpose : Labels each stock's return performance tier
+-- Output  : Text — "Top Performer", "Above Average", "Below Average", "Underperformer"
+-- Used in : P3 — slicer, scatter legend, conditional table
+-- ────────────────────────────────────────────────────────────
+
+Return Category =
+VAR Ret =
+    [Total Return %]
+VAR AvgRet =
+    CALCULATE(
+        [Total Return %],
+        ALL( 'Stock Prices'[symbol] )
+    )
+RETURN
+    IF(
+        ISBLANK( Ret ),
+        "Unknown",
+        IF(
+            Ret > AvgRet * 2,
+            "Top Performer",
+            IF(
+                Ret > AvgRet,
+                "Above Average",
+                IF(
+                    Ret > 0,
+                    "Below Average",
+                    "Underperformer"
+                )
+            )
+        )
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 9: Avg Return All Stocks
+-- Purpose : Market-wide average return (removes symbol filter)
+-- Output  : Number — benchmark for comparing individual stocks
+-- Used in : P3 — quadrant reference line value, Return Category
+-- ────────────────────────────────────────────────────────────
+
+Avg Return All Stocks =
+CALCULATE(
+    [Total Return %],
+    ALL( 'Stock Prices'[symbol] )
+)
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 10: Avg Volatility All Stocks
+-- Purpose : Market-wide average volatility (removes symbol filter)
+-- Output  : Number — benchmark for quadrant scatter reference line
+-- Used in : P3 — quadrant map X-axis reference line value
+-- ────────────────────────────────────────────────────────────
+
+Avg Volatility All Stocks =
+CALCULATE(
+    [Volatility %],
+    ALL( 'Stock Prices'[symbol] )
+)
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 11: Rank Top (Count of Top 10 stocks)
+-- Purpose : How many stocks qualify for the top bracket
+-- Output  : Number — always 10 (or fewer if tied at boundary)
+-- Used in : P1 — rank bucket supporting measure
+-- ────────────────────────────────────────────────────────────
+
+Rank Top =
+CALCULATE(
+    COUNTROWS( VALUES( 'Stock Prices'[symbol] ) ),
+    FILTER(
+        ALL( 'Stock Prices'[symbol] ),
+        [Stock Rank] <= 10
+    )
+)
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 12: Top Stock (Name of best performing stock)
+-- Purpose : Returns the symbol of the #1 ranked stock
+-- Output  : Text — e.g. "NVDA"
+-- Used in : P1 — dashboard subtitle or annotation text box
+-- ────────────────────────────────────────────────────────────
+
+Top Stock =
+CALCULATE(
+    SELECTEDVALUE( 'Stock Prices'[symbol] ),
+    TOPN(
+        1,
+        ALL( 'Stock Prices'[symbol] ),
+        [Total Return %],
+        DESC
+    )
+)
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 13: Volatility vs Market Label (for P3 tiles)
+-- Purpose : Color-coded label for volatility KPI tiles on Page 3
+-- Output  : Text with risk level for conditional formatting trigger
+-- Used in : P3 — Volatility KPI tiles background color rules
+-- ────────────────────────────────────────────────────────────
+
+Volatility Risk Label =
+VAR Vol =
+    [Volatility %]
+RETURN
+    IF( Vol > 30, "HIGH RISK",
+    IF( Vol > 25, "MED-HIGH",
+    IF( Vol > 20, "MEDIUM",
+    IF( Vol > 15, "NORMAL",
+                  "LOW RISK"
+    ))))
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 14: Price to MA Ratio
+-- Purpose : How far current price is from 30-day moving average
+-- Formula : (Latest Close - MA 30 Days) / MA 30 Days * 100
+-- Output  : Number as % — positive = above MA (bullish signal)
+-- Used in : P2 tooltip, P3 momentum analysis
+-- ────────────────────────────────────────────────────────────
+
+Price to MA Ratio =
+VAR LatestPrice =
+    [Latest Close]
+VAR MA =
+    [MA 30 Days]
+RETURN
+    IF(
+        ISBLANK( MA ) || MA = 0,
+        BLANK(),
+        DIVIDE( LatestPrice - MA, MA ) * 100
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- ADDITIONAL 15: Heatmap Cell Color Value
+-- Purpose : Numeric score for the monthly return heatmap
+--           Used to drive conditional formatting gradient
+-- Output  : Number — same as Monthly Return % but BLANK-safe
+-- Used in : P3 — Monthly Return Heatmap matrix
+-- ────────────────────────────────────────────────────────────
+
+Heatmap Value =
+VAR Val =
+    [Monthly Return %]
+RETURN
+    IF(
+        ISBLANK( Val ),
+        0,
+        Val
+    )
+
+-- ============================================================
+-- QUICK REFERENCE — ALL ADDITIONAL MEASURES AT A GLANCE
+-- ============================================================
+--
+-- Measure Name              | Output Type | Primary Page
+-- --------------------------|-------------|-------------
+-- Sharpe Ratio              | Number      | P3
+-- Price Range %             | Number %    | P3
+-- Volume Surge Flag         | Text        | P2, P3
+-- Drawdown %                | Number %    | P3
+-- Momentum Score            | Number      | P3
+-- Beta Approximation        | Number      | P3
+-- Risk Category             | Text        | P3
+-- Return Category           | Text        | P3
+-- Avg Return All Stocks     | Number      | P3
+-- Avg Volatility All Stocks | Number      | P3
+-- Rank Top                  | Number      | P1
+-- Top Stock                 | Text        | P1
+-- Volatility Risk Label     | Text        | P3
+-- Price to MA Ratio         | Number %    | P2, P3
+-- Heatmap Value             | Number      | P3
+--
+-- ============================================================
+

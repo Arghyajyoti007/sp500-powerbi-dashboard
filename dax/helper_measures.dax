@@ -1,0 +1,322 @@
+-- ============================================================
+-- HELPER MEASURES — S&P 500 Power BI Dashboard
+-- Purpose : Subtitle labels, card annotations, and comparison values
+-- These power the dynamic text shown BELOW the main KPI values
+-- e.g. "Best: 2014", "▲ YoY 0.24", "Peak: 2016", "Below 30d avg"
+-- ============================================================
+-- PREREQUISITE: All measures in core_measures.dax must exist first
+-- ============================================================
+
+
+-- ────────────────────────────────────────────────────────────
+-- HELPER 1: Top Stock Year
+-- Purpose : Finds which year had the highest Total Return %
+-- Output  : Text — e.g. "Best: 2014"
+-- Card    : P1 — Top Return % card subtitle
+-- ────────────────────────────────────────────────────────────
+
+Top Stock Year =
+VAR BestYear =
+    CALCULATE(
+        SELECTEDVALUE( 'Stock Prices'[Year] ),
+        TOPN(
+            1,
+            ALL( 'Stock Prices'[Year] ),
+            [Total Return %],
+            DESC
+        )
+    )
+RETURN
+    IF(
+        ISBLANK( BestYear ),
+        "N/A",
+        "Best: " & FORMAT( BestYear, "0" )
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- HELPER 2: Peak Vol Year
+-- Purpose : Finds which year had the highest Volatility %
+-- Output  : Text — e.g. "Peak: 2016"
+-- Card    : P1 — Volatility % card subtitle
+-- ────────────────────────────────────────────────────────────
+
+Peak Vol Year =
+VAR PeakYear =
+    CALCULATE(
+        SELECTEDVALUE( 'Stock Prices'[Year] ),
+        TOPN(
+            1,
+            ALL( 'Stock Prices'[Year] ),
+            [Volatility %],
+            DESC
+        )
+    )
+VAR CurrentYear =
+    SELECTEDVALUE( 'Stock Prices'[Year] )
+RETURN
+    IF(
+        ISBLANK( PeakYear ),
+        "N/A",
+        IF(
+            CurrentYear = PeakYear,
+            "▲ This is the peak year",
+            "Peak: " & FORMAT( PeakYear, "0" )
+        )
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- HELPER 3: YoY Return Label
+-- Purpose : Year-over-year change in return — drives the subtitle
+-- Output  : Text — e.g. "▲ YoY Return % 0.24" or "▼ YoY Return % -1.2"
+-- Card    : P1 — Total Return % card subtitle
+-- ────────────────────────────────────────────────────────────
+
+YoY Return % =
+VAR CurrentReturn =
+    CALCULATE(
+        [Total Return %],
+        DATESYTD( 'Stock Prices'[date] )
+    )
+VAR PriorReturn =
+    CALCULATE(
+        [Total Return %],
+        DATESYTD( DATEADD( 'Stock Prices'[date], -1, YEAR ) )
+    )
+VAR Change =
+    CurrentReturn - PriorReturn
+RETURN
+    Change
+
+-- Use this TEXT version directly on the card subtitle:
+YoY Return Label =
+VAR CurrentReturn =
+    CALCULATE(
+        [Total Return %],
+        DATESYTD( 'Stock Prices'[date] )
+    )
+VAR PriorReturn =
+    CALCULATE(
+        [Total Return %],
+        DATESYTD( DATEADD( 'Stock Prices'[date], -1, YEAR ) )
+    )
+VAR Change =
+    CurrentReturn - PriorReturn
+RETURN
+    IF(
+        ISBLANK( PriorReturn ),
+        "No prior year data",
+        IF(
+            Change >= 0,
+            "▲ YoY Return % " & FORMAT( Change, "0.00" ),
+            "▼ YoY Return % " & FORMAT( Change, "0.00" )
+        )
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- HELPER 4: CAGR 3Y
+-- Purpose : 3-year Compound Annual Growth Rate
+-- Output  : Text — e.g. "▲ 3yr CAGR 16.4%"
+-- Card    : P1 — Return YTD card subtitle
+-- ────────────────────────────────────────────────────────────
+
+CAGR 3Y =
+VAR TotalRet =
+    [Total Return %] / 100
+VAR CAGR =
+    ( POWER( 1 + TotalRet, 1.0 / 3 ) - 1 ) * 100
+RETURN
+    IF(
+        ISBLANK( TotalRet ),
+        "N/A",
+        "▲ 3yr CAGR " & FORMAT( CAGR, "0.0" ) & "%"
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- HELPER 5: AVG Volumn PY (Prior Year)
+-- Purpose : Average volume of the same period last year
+-- Output  : Number — used to calculate volume change %
+-- Card    : P1 — Avg Daily Volumn card subtitle
+-- REQUIRES: A Date Table marked as Date Table in Power BI
+-- ────────────────────────────────────────────────────────────
+
+AVG Volumn PY =
+CALCULATE(
+    AVERAGE( 'Stock Prices'[volume] ),
+    SAMEPERIODLASTYEAR( 'Stock Prices'[date] )
+)
+
+
+-- ────────────────────────────────────────────────────────────
+-- HELPER 6: Volume Change Label
+-- Purpose : % change vs prior year volume — subtitle text
+-- Output  : Text — e.g. "▼ 2.2% vs prior yr" or "▲ 8.3% vs prior yr"
+-- Card    : P1 — Avg Daily Volumn card subtitle
+-- ────────────────────────────────────────────────────────────
+
+Volume Change Label =
+VAR CurrentVol =
+    [AVG Volumn]
+VAR PriorVol =
+    CALCULATE(
+        AVERAGE( 'Stock Prices'[volume] ),
+        SAMEPERIODLASTYEAR( 'Stock Prices'[date] )
+    )
+VAR Change =
+    DIVIDE( CurrentVol - PriorVol, PriorVol ) * 100
+RETURN
+    IF(
+        ISBLANK( PriorVol ),
+        "No prior year data",
+        IF(
+            Change >= 0,
+            "▲ " & FORMAT( Change, "0.0" ) & "% vs prior yr",
+            "▼ " & FORMAT( ABS( Change ), "0.0" ) & "% vs prior yr"
+        )
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- HELPER 7: Latest Close
+-- Purpose : Most recent closing price as a scalar value
+-- Output  : Number — used for MA card subtitle comparison
+-- Card    : P2 — MA 30 Days card subtitle
+-- ────────────────────────────────────────────────────────────
+
+Latest Close =
+CALCULATE(
+    AVERAGE( 'Stock Prices'[close] ),
+    LASTDATE( 'Stock Prices'[date] )
+)
+
+
+-- ────────────────────────────────────────────────────────────
+-- HELPER 8: MA Position Label
+-- Purpose : Whether latest close is above or below the 30-day MA
+-- Output  : Text — "Above 30d avg" or "Below 30d avg"
+-- Card    : P2 — MA 30 Days card subtitle
+-- ────────────────────────────────────────────────────────────
+
+MA Position Label =
+IF(
+    [Latest Close] > [MA 30 Days],
+    "Above 30d avg",
+    IF(
+        [Latest Close] < [MA 30 Days],
+        "Below 30d avg",
+        "At 30d avg"
+    )
+)
+
+
+-- ────────────────────────────────────────────────────────────
+-- HELPER 9: Volume Liquidity Label
+-- Purpose : Categorises stock liquidity from volume level
+-- Output  : Text — "High liquidity", "Medium liquidity", "Low liquidity"
+-- Card    : P2 — Avg Daily Volumn card subtitle
+-- ────────────────────────────────────────────────────────────
+
+Volume Liquidity Label =
+IF(
+    [AVG Volumn] >= 10000000,
+    "High liquidity",
+    IF(
+        [AVG Volumn] >= 1000000,
+        "Medium liquidity",
+        "Low liquidity"
+    )
+)
+
+
+-- ────────────────────────────────────────────────────────────
+-- HELPER 10: Avg Mkt Vol (Market Average Volatility)
+-- Purpose : Volatility % averaged across ALL stocks
+-- Output  : Number — used to compare individual stock vs market
+-- Card    : P2 — Volatility % card subtitle
+-- ────────────────────────────────────────────────────────────
+
+Avg Mkt Vol =
+CALCULATE(
+    [Volatility %],
+    ALL( 'Stock Prices'[symbol] )
+)
+
+
+-- ────────────────────────────────────────────────────────────
+-- HELPER 11: Volatility Position Label
+-- Purpose : Whether stock volatility is above or below market avg
+-- Output  : Text — "▲ Above market avg" or "▼ Below market avg"
+-- Card    : P2 — Volatility % card subtitle
+-- ────────────────────────────────────────────────────────────
+
+Volatility Position Label =
+VAR StockVol =
+    [Volatility %]
+VAR MarketVol =
+    [Avg Mkt Vol]
+RETURN
+    IF(
+        ISBLANK( StockVol ),
+        "No data",
+        IF(
+            StockVol > MarketVol,
+            "▲ Above market avg",
+            "▼ Below market avg"
+        )
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- HELPER 12: Rank Label
+-- Purpose : Formats rank as "Rank X / Y" for card subtitle
+-- Output  : Text — e.g. "Rank 47 / 505"
+-- Card    : P2 — Total Return % card subtitle
+-- ────────────────────────────────────────────────────────────
+
+Rank Label =
+VAR CurrentRank =
+    [Stock Rank]
+VAR TotalStocks =
+    [Rank Worst]
+RETURN
+    IF(
+        ISBLANK( CurrentRank ),
+        "No rank data",
+        "Rank " & FORMAT( CurrentRank, "0" ) & " / " & FORMAT( TotalStocks, "0" )
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- HELPER 13: Vol vs Avg %
+-- Purpose : % difference of current volume from average volume
+-- Output  : Text — "vs Avg: +32.4%" — used in chart tooltip
+-- Chart   : P2 — Daily Volume bar chart tooltip
+-- ────────────────────────────────────────────────────────────
+
+Vol vs Avg % =
+VAR Diff =
+    DIVIDE(
+        [Daily Volume] - [AVG Volumn],
+        [AVG Volumn]
+    ) * 100
+RETURN
+    IF(
+        ISBLANK( Diff ),
+        "N/A",
+        "vs Avg: " & FORMAT( Diff, "+0.0%;-0.0%" )
+    )
+
+
+-- ────────────────────────────────────────────────────────────
+-- HELPER 14: Total Symbols
+-- Purpose : Count of unique stock symbols (data quality check)
+-- Output  : Number — should match [Rank Worst]
+-- Use     : Verification card — confirms full dataset loaded
+-- ────────────────────────────────────────────────────────────
+
+Total Symbols =
+DISTINCTCOUNT( 'Stock Prices'[symbol] )
+

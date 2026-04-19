@@ -1,0 +1,337 @@
+-- ============================================================
+-- CORE MEASURES — S&P 500 Power BI Dashboard
+-- Table: 'Stock Prices' | Columns: symbol, date, open, high, low, close, volume
+-- Create all measures inside a blank table named: Measures
+-- ============================================================
+-- HOW TO CREATE: Home > Enter Data (blank table named "Measures")
+--                Then: New Measure for each formula below
+-- ============================================================
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 1: AVG Volumn
+-- Purpose : Average daily trading volume
+-- Used in : All 3 pages — KPI cards, combo chart, table
+-- ────────────────────────────────────────────────────────────
+
+AVG Volumn =
+AVERAGE( 'Stock Prices'[volume] )
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 2: Avg Close Price
+-- Purpose : Average closing price — foundation for most other measures
+-- Used in : P1 trend chart, P2 OHLC chart, P3 MA comparison
+-- ────────────────────────────────────────────────────────────
+
+Avg Close Price =
+AVERAGE( 'Stock Prices'[close] )
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 3: MA 30 Days
+-- Purpose : 30-day rolling moving average of close price
+-- Used in : P1 trend chart overlay, P2 KPI card
+-- ────────────────────────────────────────────────────────────
+
+MA 30 Days =
+CALCULATE(
+    AVERAGE( 'Stock Prices'[close] ),
+    DATESINPERIOD(
+        'Stock Prices'[date],
+        LASTDATE( 'Stock Prices'[date] ),
+        -30,
+        DAY
+    )
+)
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 4: Total Return %
+-- Purpose : Cumulative return from first to last date in filter context
+-- Used in : All pages — primary KPI card, scatter, donut, table
+-- NOTE    : Uses FILTER(ALL()) to avoid FIRSTDATE() multi-column error
+-- ────────────────────────────────────────────────────────────
+
+Total Return % =
+VAR FirstPrice =
+    CALCULATE(
+        AVERAGE( 'Stock Prices'[close] ),
+        FILTER(
+            ALL( 'Stock Prices'[date] ),
+            'Stock Prices'[date] = MINX(
+                ALL( 'Stock Prices'[date] ),
+                'Stock Prices'[date]
+            )
+        )
+    )
+VAR LastPrice =
+    CALCULATE(
+        AVERAGE( 'Stock Prices'[close] ),
+        LASTDATE( 'Stock Prices'[date] )
+    )
+RETURN
+    DIVIDE( LastPrice - FirstPrice, FirstPrice ) * 100
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 5: Yearly Return %
+-- Purpose : Jan-to-Dec return for a specific calendar year
+-- Used in : P1 — Return by Year column chart (X Axis = Year)
+-- NOTE    : Use THIS measure on the bar chart — NOT Total Return %
+-- ────────────────────────────────────────────────────────────
+
+Yearly Return % =
+VAR YearStart =
+    CALCULATE(
+        AVERAGE( 'Stock Prices'[close] ),
+        FILTER(
+            ALL( 'Stock Prices'[date] ),
+            YEAR( 'Stock Prices'[date] ) = SELECTEDVALUE( 'Stock Prices'[Year] )
+                && MONTH( 'Stock Prices'[date] ) = 1
+        )
+    )
+VAR YearEnd =
+    CALCULATE(
+        AVERAGE( 'Stock Prices'[close] ),
+        FILTER(
+            ALL( 'Stock Prices'[date] ),
+            YEAR( 'Stock Prices'[date] ) = SELECTEDVALUE( 'Stock Prices'[Year] )
+                && MONTH( 'Stock Prices'[date] ) = 12
+        )
+    )
+RETURN
+    DIVIDE( YearEnd - YearStart, YearStart ) * 100
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 6: Return YTD
+-- Purpose : Year-to-date return from Jan 1 to latest date in context
+-- Used in : P1 KPI card, P2 table column
+-- ────────────────────────────────────────────────────────────
+
+Return YTD =
+VAR StartPrice =
+    CALCULATE(
+        AVERAGE( 'Stock Prices'[close] ),
+        FILTER(
+            ALL( 'Stock Prices'[date] ),
+            YEAR( 'Stock Prices'[date] ) = YEAR( LASTDATE( 'Stock Prices'[date] ) )
+                && MONTH( 'Stock Prices'[date] ) = 1
+        )
+    )
+VAR EndPrice =
+    CALCULATE(
+        AVERAGE( 'Stock Prices'[close] ),
+        LASTDATE( 'Stock Prices'[date] )
+    )
+RETURN
+    DIVIDE( EndPrice - StartPrice, StartPrice ) * 100
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 7: Monthly Return %
+-- Purpose : Month-start to month-end return
+-- Used in : P2 — Monthly Return % by Sector line chart
+-- NOTE    : FIRSTDATE/LASTDATE auto-scope to the month on X axis
+-- ────────────────────────────────────────────────────────────
+
+Monthly Return % =
+VAR MonthStart =
+    CALCULATE(
+        AVERAGE( 'Stock Prices'[close] ),
+        FIRSTDATE( 'Stock Prices'[date] )
+    )
+VAR MonthEnd =
+    CALCULATE(
+        AVERAGE( 'Stock Prices'[close] ),
+        LASTDATE( 'Stock Prices'[date] )
+    )
+RETURN
+    DIVIDE( MonthEnd - MonthStart, MonthStart ) * 100
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 8: Stock Rank
+-- Purpose : Ranks each stock 1 to N by Total Return % (1 = best)
+-- Used in : P1 rank bucket bar, P2 KPI subtitle, P2 table
+-- ────────────────────────────────────────────────────────────
+
+Stock Rank =
+RANKX(
+    ALL( 'Stock Prices'[symbol] ),
+    [Total Return %],
+    ,
+    DESC,
+    DENSE
+)
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 9: Top Return %
+-- Purpose : Single highest return across ALL 505 stocks
+-- Used in : P1 KPI card (main value)
+-- NOTE    : ALL() ignores all slicers — always shows global max
+-- ────────────────────────────────────────────────────────────
+
+Top Return % =
+MAXX(
+    ALL( 'Stock Prices'[symbol] ),
+    [Total Return %]
+)
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 10: Rank Worst
+-- Purpose : Highest rank number = total count of ranked stocks
+-- Used in : P2 KPI subtitle — shows denominator in "Rank X / 484"
+-- ────────────────────────────────────────────────────────────
+
+Rank Worst =
+MAXX(
+    ALL( 'Stock Prices'[symbol] ),
+    [Stock Rank]
+)
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 11: Volatility %
+-- Purpose : Annualised price volatility (standard financial metric)
+-- Used in : All pages — KPI card, scatter, table, heatmap
+-- FORMULA : StdDev(daily returns) × √252 × 100
+--           252 = number of trading days in a year
+-- ────────────────────────────────────────────────────────────
+
+Volatility % =
+VAR DailyReturnsTable =
+    ADDCOLUMNS(
+        'Stock Prices',
+        "DailyReturn",
+        DIVIDE(
+            'Stock Prices'[close] - 'Stock Prices'[open],
+            'Stock Prices'[open]
+        )
+    )
+VAR StdDev =
+    STDEVX.P( DailyReturnsTable, [DailyReturn] )
+RETURN
+    StdDev * SQRT( 252 ) * 100
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 12: Daily Volume
+-- Purpose : Total (SUM) of daily trading volume
+-- Used in : P2 — Daily Volume bar chart (individual daily bars)
+-- NOTE    : Different from AVG Volumn — SUM vs AVERAGE
+-- ────────────────────────────────────────────────────────────
+
+Daily Volume =
+SUM( 'Stock Prices'[volume] )
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 13: Avg High
+-- Purpose : Average of daily high prices
+-- Used in : P2 — OHLC Price Movement chart (green dashed line)
+-- ────────────────────────────────────────────────────────────
+
+Avg High =
+AVERAGE( 'Stock Prices'[high] )
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 14: Avg Low
+-- Purpose : Average of daily low prices
+-- Used in : P2 — OHLC Price Movement chart (red dashed line)
+-- ────────────────────────────────────────────────────────────
+
+Avg Low =
+AVERAGE( 'Stock Prices'[low] )
+
+
+-- ────────────────────────────────────────────────────────────
+-- MEASURE 15: Bucket Return
+-- Purpose : Average return for each rank bracket (Top 10, Top 25 etc.)
+-- Used in : P1 — Rank Bucket Returns horizontal bar chart
+-- REQUIRES: RankBuckets static table (see chart_data_mappings.md)
+-- ────────────────────────────────────────────────────────────
+
+Bucket Return =
+SWITCH(
+    SELECTEDVALUE( RankBuckets[Bucket] ),
+    "Top 10",
+        CALCULATE(
+            [Total Return %],
+            FILTER(
+                ALL( 'Stock Prices'[symbol] ),
+                [Stock Rank] <= 10
+            )
+        ),
+    "Top 25",
+        CALCULATE(
+            [Total Return %],
+            FILTER(
+                ALL( 'Stock Prices'[symbol] ),
+                [Stock Rank] <= 25
+            )
+        ),
+    "Mid 50",
+        CALCULATE(
+            [Total Return %],
+            FILTER(
+                ALL( 'Stock Prices'[symbol] ),
+                [Stock Rank] > 25 && [Stock Rank] <= 75
+            )
+        ),
+    "Bot 25",
+        CALCULATE(
+            [Total Return %],
+            FILTER(
+                ALL( 'Stock Prices'[symbol] ),
+                [Stock Rank] > 459
+            )
+        ),
+    "Bot 10",
+        CALCULATE(
+            [Total Return %],
+            FILTER(
+                ALL( 'Stock Prices'[symbol] ),
+                [Stock Rank] > 474
+            )
+        )
+)
+
+
+-- ============================================================
+-- CALCULATED COLUMNS (create in 'Stock Prices' table)
+-- Go to: Data view > select 'Stock Prices' table > New Column
+-- ============================================================
+
+-- COLUMN 1: Sector
+-- Purpose : Groups stocks by industry sector for donut chart and filters
+
+Sector =
+SWITCH(
+    TRUE(),
+    'Stock Prices'[symbol] IN {
+        "AAPL","MSFT","GOOGL","AMZN","NVDA","NFLX","META","INTC",
+        "ORCL","IBM","CSCO","ADBE","CRM","QCOM","TXN","AVGO","MU","AMAT"
+    }, "Tech",
+    'Stock Prices'[symbol] IN {
+        "JPM","GS","BAC","WFC","C","AXP","MS","BLK","USB","PNC","COF","SCHW"
+    }, "Finance",
+    'Stock Prices'[symbol] IN {
+        "JNJ","PFE","UNH","MRK","ABT","AMGN","MDT","GILD","BMY","BIIB","ISRG"
+    }, "Health",
+    'Stock Prices'[symbol] IN {
+        "XOM","CVX","COP","SLB","EOG","OXY","HAL","PSX","VLO","MPC"
+    }, "Energy",
+    'Stock Prices'[symbol] IN {
+        "WMT","PG","KO","MCD","NKE","SBUX","TGT","HD","LOW","COST","EL"
+    }, "Consumer",
+    'Stock Prices'[symbol] IN {
+        "BA","CAT","GE","MMM","HON","LMT","UPS","FDX","RTX","DE","EMR"
+    }, "Industrial",
+    "Other"
+)
+
