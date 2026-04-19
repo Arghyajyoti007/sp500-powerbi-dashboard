@@ -130,7 +130,7 @@ sp500-powerbi-dashboard/
 │
 ├── 📁 docs/                            # Documentation
 │   ├── dashboard_explanation.pdf       # Full explanation document
-│   ├── dax_replication_guide.docx      # Step-by-step build guide
+│   ├── dax_replication_guide.pdf      # Step-by-step build guide
 │   └── chart_data_mappings.md         # X/Y axis specs for every chart
 │
 ├── 📄 S&P500_Motilal_Dashboard.pbix    # Main Power BI file
